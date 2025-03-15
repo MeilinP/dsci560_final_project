@@ -2,7 +2,7 @@
 
 ![Project Logo](logo.jpeg)
 
-This project automates the process of recording audio on an Android device using Termux, sending the audio to an AWS EC2 instance for processing, classifying the audio events using a SageMaker endpoint, and sending email alerts if certain conditions (e.g., presence of a vehicle, gunshot, or engine sound) are met.
+This project automates the process of recording audio on an Android device using Termux, sending the audio to an AWS EC2 instance for processing, classifying the audio events using a SageMaker endpoint, and sending email alerts if certain conditions (e.g., presence of a vehicle, gunshot, or engine sound) are met. This is a group project by MeilinP, rdzhao, and ckalsdh.
 
 ## Overview
 
