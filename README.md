@@ -1,156 +1,86 @@
 # Neighbor Heard: Audio Event Detection and Notification System
 
-![Project Logo](logo.jpeg)
+An end-to-end prototype that records environmental audio on an Android device, processes it on AWS, classifies sound events with an Audio Spectrogram Transformer (AST), and sends an email alert when selected events are detected.
 
-This project automates the process of recording audio on an Android device using Termux, sending the audio to an AWS EC2 instance for processing, classifying the audio events using a SageMaker endpoint, and sending email alerts if certain conditions (e.g., presence of a vehicle, gunshot, or engine sound) are met. This is a group project by MeilinP, rdzhao, and ckalsdh.
+> **Project status:** Historical course prototype. The original AWS endpoint and infrastructure may no longer be active. This repository documents the system design and implementation; it is not a production safety system.
 
-## Overview
+## My Contribution
 
-1. **Capture Audio on Termux (Android)**:  
-   Use `termux-microphone-record` or `sox` to record short audio clips at regular intervals.
+This was a three-person group project. My work focused on:
 
-2. **Transfer Audio to AWS EC2**:  
-   Automatically upload recorded audio files from Termux to an EC2 instance using `scp`.  
-   - A cron job on Termux triggers recording and uploading.
-   - EC2 receives the file, which is processed and analyzed.
+- audio data preprocessing and format standardization;
+- model training and experimentation for audio-event classification;
+- integrating the model output into the inference pipeline; and
+- testing the classification workflow on collected audio samples.
 
-3. **Audio Processing and Classification on EC2**:  
-   - The EC2 instance uses `librosa` to stream and process the audio data.
-   - AWS SageMaker Predictor calls a pre-deployed endpoint (e.g., an Audio Spectrogram Transformer model) to classify audio events (e.g., "Vehicle", "Gunshot, gunfire", "Engine").
-   - The raw logits are converted to probabilities using a sigmoid function and aggregated across audio frames.
+The public repository contains the inference and deployment snapshot, but not the original training notebook, dataset, or experiment logs. I therefore do not report a benchmark metric here that cannot be independently verified from the repository.
 
-4. **Email Notifications**:  
-   If the classification meets certain conditions (for example, "Vehicle" or "Gunshot, gunfire" probabilities ≥ 0.03), an email alert is sent.
+## System Architecture
 
-5. **Automation and Scheduling**:  
-   - Cron jobs run on Termux to continuously capture and send audio files.
-   - Cron or systemd timers on EC2 can periodically process incoming files and run the classification script.
+```mermaid
+flowchart LR
+    A[Android + Termux] -->|record 5-second clips| B[SCP transfer]
+    B --> C[AWS EC2]
+    C -->|FFmpeg / librosa| D[Audio preprocessing]
+    D --> E[SageMaker AST endpoint]
+    E --> F[Frame-level logits]
+    F -->|sigmoid + category aggregation| G[Event probabilities]
+    G --> H{Alert rule}
+    H -->|vehicle or gunshot detected| I[Email notification]
+```
 
-## Key Components
+## Machine-Learning Pipeline
 
-- **Termux (Android)**:
-  - **termux-microphone-record**: Records audio from your phone’s microphone.
-  - **scp**: Securely copies the recorded audio file to the EC2 instance.
-  - **cron**: Automates recording and uploading at regular intervals.
+1. **Capture:** Termux records short microphone clips on an Android device.
+2. **Transfer:** Each clip is securely copied to an EC2 instance.
+3. **Standardize:** FFmpeg converts incoming audio to a mono WAV file; `librosa` streams the file into overlapping frames.
+4. **Classify:** Frames are sent to a SageMaker endpoint serving an Audio Spectrogram Transformer based on the MIT AudioSet checkpoint.
+5. **Aggregate:** Model logits are converted with a sigmoid function and averaged by event category across frames.
+6. **Notify:** Rule-based logic checks selected categories such as vehicle and gunshot events and triggers an SMTP email alert.
 
-- **SageMaker(AWS)**:
-  - **Python environment** with `numpy`, `librosa`, `boto3`, `sagemaker`, `dotenv`, `ffmpeg`, `sox`.
-  - **SageMaker Endpoint**: A pre-trained audio classification model endpoint.
-  - **Scripts**:
-    - `predict_send_mail` function (within `email_noti.py`):  
-      - Loads `.env` credentials for AWS and email.
-      - Uses SageMaker’s Predictor to classify audio events.
-      - Evaluates conditions for sending an email alert.
-    - Converts MP4-based audio (if recorded that way) to WAV format for processing.
-    - Extracts event categories and probabilities.
-  
-  - **SMTP (Gmail)**:
-    - Uses `smtplib` to send email alerts based on classification results.
-    - Credentials stored in `.env` file.
+## Repository Map
 
-- **EC2 Instance (AWS)**:
-  - **Python environment** with `numpy`, `librosa`, `boto3`, `sagemaker`, `dotenv`, `ffmpeg`, `sox`.
-  - **SageMaker Endpoint**: A pre-trained audio classification model endpoint.
-  - **Scripts**:
-    - `predict_send_mail` function (within `email_noti.py`):  
-      - Loads `.env` credentials for AWS and email.
-      - Uses SageMaker’s Predictor to classify audio events.
-      - Evaluates conditions for sending an email alert.
-    - Converts MP4-based audio (if recorded that way) to WAV format for processing.
-    - Extracts event categories and probabilities.
-  
-  - **SMTP (Gmail)**:
-    - Uses `smtplib` to send email alerts based on classification results.
-    - Credentials stored in `.env` file.
+| File | Purpose |
+|---|---|
+| `audio_collection.py` | Records five-second clips in Termux and transfers them to EC2 |
+| `preprocess_audio.py` | Converts incoming audio to a consistent mono WAV format |
+| `model.py` | Loads the AudioSet-pretrained AST model and returns top event predictions |
+| `email_noti.py` | Streams audio, calls the SageMaker endpoint, aggregates predictions, and sends alerts |
+| `run_email_noti.sh` | Repeats preprocessing and inference on the EC2 instance |
+| `streamlit_visualization.py` | Visualizes collected sensor and location information |
+| `.env.example` | Documents required environment variables without committing credentials |
 
-- **AWS Credentials and ENV Setup**:
-  - Store `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `EMAIL_ADDRESS`, `EMAIL_PASSWORD` in a `.env` file.
-  - `dotenv` loads these environment variables at runtime.
+## Technologies
 
-## Prerequisites
+- Python, NumPy, PyTorch, Hugging Face Transformers
+- `librosa`, FFmpeg, SoX
+- AWS EC2, SageMaker, Boto3
+- Android Termux, SCP, shell automation
+- SMTP email notifications
 
-1. **Termux (on Android)**:
-   - Install packages: `pkg install sox openssh cronie aws-cli ffmpeg termux-api`.
-   - Grant microphone permissions in Termux app settings.
-   
-2. **AWS EC2 Instance**:
-   - A running EC2 instance (Ubuntu or Amazon Linux).
-   - `sudo apt update && sudo apt install -y python3 python3-pip sox ffmpeg`
-   - `pip install librosa sagemaker boto3 numpy python-dotenv`
+## Reproducibility Notes
 
-3. **SageMaker Endpoint**:
-   - A deployed endpoint serving an audio classification model (e.g., AST model).
-   - Ensure `endpoint_name` is correctly set in the script.
+The repository is a deployment snapshot from a course project rather than a packaged library. Reproducing the original system requires:
 
-4. **Email Credentials**:
-   - A Gmail account with App Passwords enabled (if using Gmail).
-   - Store credentials in `.env`:
-     ```
-     EMAIL_ADDRESS=your_email@gmail.com
-     EMAIL_PASSWORD=your_app_password
-     AWS_ACCESS_KEY_ID=your_aws_access_key
-     AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-     ```
-   
-   - Ensure `SMTP_SERVER` and `SMTP_PORT` are correct (for Gmail: `smtp.gmail.com`, port `587`).
+- an Android device with Termux and microphone permission;
+- an EC2 instance with FFmpeg and the Python dependencies installed;
+- a SageMaker endpoint compatible with the expected prediction format; and
+- local environment variables for AWS and email credentials.
 
-## Setup Instructions
+Copy `.env.example` to `.env` and provide your own credentials. Never commit `.env`, private keys, email passwords, or active infrastructure addresses.
 
-1. **On Termux**:
-   - Collect audio and send it to EC2 instance every 10 seconds
-    ```bash
-      python audio_collection.py
-    ```
+## Known Limitations
 
-2. **On EC2**:
-   - Ensure `email_noti.py`, `preprocess_audio` and `.env` are in place.
-   - Run the script manually to test:
-     ```bash
-      python3 email_noti.py
-     ```
-   - Now run `run_email_noti.sh`. Will check for output every 10 seconds.
-     ```bash
-      #!/bin/bash
-      while true; do
-          python3 preprocess_audio.py
-          python3 email_noti.py
-          sleep 10
-      done
-     ```
+- The public snapshot does not include the training dataset, training notebook, saved model artifacts, or benchmark results.
+- Alert thresholds were selected for the prototype and were not calibrated for production use.
+- Averaging frame-level probabilities can miss short-duration events.
+- The current scripts assume a specific cloud deployment and need configuration before reuse.
+- This system should not be used as a substitute for emergency or security services.
 
-3. **On SageMaker**:
-    - Make sure AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, region and endpoint are set correctly.
+## Team
 
-## Troubleshooting
-
-- **No Audio Detected**:
-  - Check Termux microphone permissions and verify that `termux-microphone-record` produces a playable audio file.
-  - Use `file output.mp3` or `play output.mp3` (if sox is installed) to confirm it’s a valid audio file.
-
-- **Incorrect File Format**:
-  - If `output.wav` is actually MP4, convert using `ffmpeg`:
-    ```bash
-    ffmpeg -y -i output.wav -ar 44100 -ac 1 processed_output.wav
-    ```
-  - Update the processing script to handle conversion before inference.
-
-- **SageMaker Endpoint Errors**:
-  - Check AWS credentials and region.
-  - Confirm the endpoint name matches the deployed model.
-  - Test the predictor with known audio locally.
-
-- **Email Not Sending**:
-  - Verify SMTP credentials and `.env` variables.
-  - Check AWS EC2 security group and firewall rules (if required).
-  - Make sure `EMAIL_ADDRESS` and `EMAIL_PASSWORD` are correct.
-
-## Contributing
-
-- Fork this repository and create feature branches for improvements.
-- Submit pull requests and provide clear commit messages.
+Group project by MeilinP, rdzhao, and ckalsdh for USC DSCI 560.
 
 ## License
 
-This project is for demonstration purposes and does not include a specific license. Use at your own discretion.
-
----
+MIT License. See [`LICENSE`](LICENSE).
